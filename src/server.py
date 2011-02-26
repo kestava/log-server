@@ -4,6 +4,7 @@ import os
 import re
 import pprint
 import cStringIO
+import logging
 
 import pika
 
@@ -16,7 +17,41 @@ class Server(object):
     def __init__(self):
         self.__setup_signal_handlers()
         self.__producerLogs = self.__create_producer_logs()
-        #pprint.pprint(self.__producerLogs)
+    
+    def run(self):
+        queueName = settings.config['logging.queuename']
+        params = pika.ConnectionParameters(host=settings.config['logging.host'])
+        
+        connection = pika.AsyncoreConnection(parameters=params)
+        channel = connection.channel()
+        
+        channel.queue_declare(
+            queue=queueName,
+            durable=True,
+            exclusive=False,
+            auto_delete=False)
+    
+        channel.basic_consume(
+            self.__handle_delivery,
+            queue=queueName)
+        
+        try:
+            pika.asyncore_loop()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            channel.close()
+            connection.close()
+            self.log(
+                'Close reason: {0}'.format(connection.connection_close.reply_text),
+                logging.INFO)
+            
+    def log(self, message, level):
+        """
+        Write a message using the main application logger
+        """
+        logger = logging.getLogger()
+        logger.log(level, message)
     
     def __handle_signal(self, signal_number, stack_frame):
         if signal_number in self.__quitOn:
@@ -31,8 +66,6 @@ class Server(object):
         for i in os.listdir(unicode(settings.config['logdir'])):
             a = r.match(i)
             if a:
-                #pprint.pprint(a.groups())
-                #print(a.group(1))
                 producer = a.group(1)
                 producerFile = a.group()
                 o[producer] = self.__create_producer_fileinfo(producerFile)
@@ -85,31 +118,4 @@ class Server(object):
             channel.basic_ack(delivery_tag=method.delivery_tag)
         except Exception, e:
             print(e)
-    
-    def run(self):
-        queueName = settings.config['logging.queuename']
-        params = pika.ConnectionParameters(host=settings.config['logging.host'])
-        
-        connection = pika.AsyncoreConnection(parameters=params)
-        channel = connection.channel()
-        
-        channel.queue_declare(
-            queue=queueName,
-            durable=True,
-            exclusive=False,
-            auto_delete=False)
-    
-        channel.basic_consume(
-            self.__handle_delivery,
-            queue=queueName)
-        
-        try:
-            pika.asyncore_loop()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            channel.close()
-            connection.close()
-        
-        print('\nClose reason: {0}'.format(connection.connection_close.reply_text))
         
