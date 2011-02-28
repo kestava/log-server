@@ -22,7 +22,10 @@ class Server(object):
         queueName = settings.config['logging.queuename']
         params = pika.ConnectionParameters(host=settings.config['logging.host'])
         
-        connection = pika.AsyncoreConnection(parameters=params)
+        reconnStrategy = pika.SimpleReconnectionStrategy()
+        connection = pika.AsyncoreConnection(
+            parameters=params,
+            reconnection_strategy=reconnStrategy)
         channel = connection.channel()
         
         channel.queue_declare(
