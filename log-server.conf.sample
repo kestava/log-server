@@ -1,0 +1,15 @@
+# An Upstart configuration script to manage the kestava logging process.
+
+description "A queue-based logging server"
+console output
+respawn
+
+start on (local-filesystems and net-device-up IFACE=eth1)
+stop on runlevel [!12345]
+
+pre-start script
+    mkdir -p /var/log/kestava
+    chown kestava /var/log/kestava
+end script
+
+exec sudo -u kestava /usr/local/pythonenv/KESTAVA-LOGGING/bin/python /home/jacob/Documents/git-repos/kestava/log-server/src/app.py
