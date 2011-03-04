@@ -143,10 +143,19 @@ class Server(object):
     def __handle_delivery(self, channel, method, header, body):
         self.log('Inside Server.__handle_delivery', level=logging.DEBUG)
         message = json.loads(body)
-        producer = message['producer']
-        if not producer in self.__producerLogs:
-            self.__init_producer(producer)
         
-        self.__write_to_log(message)
+        messageLevel = int(message['level_num'])
+        
+        logger = logging.getLogger()
+        if messageLevel >= logger.level:
+        
+            producer = message['producer']
+            if not producer in self.__producerLogs:
+                self.__init_producer(producer)
+            
+            self.__write_to_log(message)
+        
+        else:
+            print('Message skipped')
+            
         channel.basic_ack(delivery_tag=method.delivery_tag)
-        
