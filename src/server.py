@@ -5,10 +5,12 @@ import re
 import pprint
 import cStringIO
 import logging
+import time
 
 import pika
 
 import settings
+from quitapplication import QuitApplication
 
 class Server(object):
     
@@ -17,39 +19,63 @@ class Server(object):
     def __init__(self):
         self.__setup_signal_handlers()
         self.__producerLogs = self.__create_producer_logs()
+        self.__queueHost = settings.config['queue.host']
+        self.__queueName = settings.config['queue.name']
+        self.__queueRetryTimeout = settings.config['queue.retryTimeout']
+        self.__loopTimeout = settings.config['loopTimeout']
     
     def run(self):
-        queueName = settings.config['logging.queuename']
-        params = pika.ConnectionParameters(host=settings.config['logging.host'])
-        
-        reconnStrategy = pika.SimpleReconnectionStrategy()
-        connection = pika.AsyncoreConnection(
-            parameters=params,
-            reconnection_strategy=reconnStrategy)
-        channel = connection.channel()
-        
-        channel.queue_declare(
-            queue=queueName,
-            durable=True,
-            exclusive=False,
-            auto_delete=False)
-    
-        channel.basic_consume(
-            self.__handle_delivery,
-            queue=queueName)
-        
+        """
+        Poll the queue at a certain interval for new messages.
+        """
         try:
-            pika.asyncore_loop()
-        except KeyboardInterrupt:
-            pass
+            while True:
+                self.log('Loop start', level=logging.DEBUG)
+                
+                connection = None
+                channel = None
+                
+                try:
+                    connection = self.fresh_connection()
+                    if connection.connection_open:
+                        self.log('Got connection!', level=logging.DEBUG)
+                        channel = connection.channel()
+                        
+                        channel.queue_declare(
+                            queue=self.__queueName,
+                            durable=True,
+                            exclusive=False,
+                            auto_delete=False)
+                    
+                        channel.basic_consume(
+                            self.__handle_delivery,
+                            queue=self.__queueName)
+                        
+                    else:
+                        self.log('No connection!', level=logging.DEBUG)
+                finally:
+                    if not channel is None:
+                        self.log('Closing channel', level=logging.DEBUG)
+                        channel.close()
+                        channel = None
+                        
+                    if not connection is None:
+                        self.log('Closing connection', level=logging.DEBUG)
+                        connection.close()
+                        connection = None
+                    
+                time.sleep(self.__loopTimeout)
+        except QuitApplication as e:
+            self.log('Quitting application ({0})'.format(e.signalName))
         finally:
-            channel.close()
-            connection.close()
-            self.log(
-                'Close reason: {0}'.format(connection.connection_close.reply_text),
-                logging.INFO)
+            self.log('Log Server stopped')
+    
+    def fresh_connection(self):
+        self.log('Inside Server.fresh_connection', level=logging.DEBUG)
+        return pika.AsyncoreConnection(
+            parameters=pika.ConnectionParameters(host=self.__queueHost))
             
-    def log(self, message, level):
+    def log(self, message, level=logging.INFO):
         """
         Write a message using the main application logger
         """
@@ -58,10 +84,11 @@ class Server(object):
     
     def __handle_signal(self, signal_number, stack_frame):
         if signal_number in self.__quitOn:
-            raise KeyboardInterrupt()
+            raise QuitApplication(signal=signal_number)
     
     def __setup_signal_handlers(self):
-        [signal.signal(i, self.__handle_signal) for i in self.__quitOn]
+        for i in self.__quitOn:
+            signal.signal(i, self.__handle_signal)
     
     def __create_producer_logs(self):
         o = {}
@@ -111,6 +138,7 @@ class Server(object):
             s.close()
     
     def __handle_delivery(self, channel, method, header, body):
+        self.log('Inside Server.__handle_delivery', level=logging.DEBUG)
         message = json.loads(body)
         producer = message['producer']
         if not producer in self.__producerLogs:

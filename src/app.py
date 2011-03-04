@@ -12,7 +12,7 @@ if __name__ == '__main__':
     logFilePath = os.path.join(settings.config['logdir'], 'server.log')
     
     logger = logging.getLogger()
-    logger.setLevel(logging.NOTSET)
+    logger.setLevel(settings.config['logging.level'])
     
     # We'll use a WatchedFileHandler and utilize some external application to
     # rotate the logs periodically
@@ -22,6 +22,8 @@ if __name__ == '__main__':
     logger.addHandler(handler)
     
     handler = logging.StreamHandler()
+    formatter = logging.Formatter(fmt='%(asctime)s|%(levelname)s|%(message)s')
+    handler.setFormatter(formatter)
     logger.addHandler(handler)
     
     logger.info('Log Server started')
@@ -30,9 +32,4 @@ if __name__ == '__main__':
         setproctitle(settings.config['proctitle'])
             
     server = Server()
-    try:
-        server.run()
-    except Exception as ex:
-        logger.error('Log Server encountered an exception %s', ex)
-    finally:
-        logger.info('Log Server stopped')
+    server.run()

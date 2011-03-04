@@ -1,0 +1,11 @@
+import logging
+
+config = {
+    'proctitle': 'kestava-log-server',
+    'queue.host': 'localhost',
+    'queue.name': 'kestava_logging',
+    'queue.retryTimeout': 10.0,
+    'loopTimeout': 10.0,
+    'logdir': '/var/log/kestava',
+    'logging.level': logging.INFO
+}
