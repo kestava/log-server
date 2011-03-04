@@ -38,7 +38,7 @@ class Server(object):
                 try:
                     connection = self.fresh_connection()
                     if connection.connection_open:
-                        self.log('Got connection!', level=logging.DEBUG)
+                        self.log('Got connection', level=logging.DEBUG)
                         channel = connection.channel()
                         
                         channel.queue_declare(
@@ -48,11 +48,14 @@ class Server(object):
                             auto_delete=False)
                     
                         channel.basic_consume(
-                            self.__handle_delivery,
+                            consumer=self.__handle_delivery,
                             queue=self.__queueName)
                         
+                        pika.asyncore_loop()
+                        
+                        self.log('Finished with connection', level=logging.DEBUG)
                     else:
-                        self.log('No connection!', level=logging.DEBUG)
+                        self.log('No connection', level=logging.DEBUG)
                 finally:
                     if not channel is None:
                         self.log('Closing channel', level=logging.DEBUG)
@@ -143,10 +146,7 @@ class Server(object):
         producer = message['producer']
         if not producer in self.__producerLogs:
             self.__init_producer(producer)
-            
-        try:
-            self.__write_to_log(message)
-            channel.basic_ack(delivery_tag=method.delivery_tag)
-        except Exception, e:
-            print(e)
+        
+        self.__write_to_log(message)
+        channel.basic_ack(delivery_tag=method.delivery_tag)
         
