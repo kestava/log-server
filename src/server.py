@@ -5,6 +5,7 @@ import re
 import pprint
 import cStringIO
 import logging
+from logging.handlers import WatchedFileHandler
 import time
 
 import pika
@@ -17,12 +18,16 @@ class Server(object):
     __quitOn = [signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT, signal.SIGINT]
     
     def __init__(self):
-        self.__setup_signal_handlers()
-        self.__producerLogs = self.__create_producer_logs()
+        self.__producer = settings.config['server-producer']
+        self.__loggingLevel = settings.config['logging.level']
+        self.__producers = settings.config['client-producers']
         self.__queueHost = settings.config['queue.host']
         self.__queueName = settings.config['queue.name']
         self.__queueRetryTimeout = settings.config['queue.retryTimeout']
         self.__loopTimeout = settings.config['loopTimeout']
+        
+        self.__setup_signal_handlers()
+        [self.__create_producer_logger(i, j) for (i, j) in self.__producers.items()]
     
     def run(self):
         """
@@ -93,69 +98,46 @@ class Server(object):
         for i in self.__quitOn:
             signal.signal(i, self.__handle_signal)
     
-    def __create_producer_logs(self):
-        o = {}
-        r = re.compile('^([-\w]+)\.log$')
-        for i in os.listdir(unicode(settings.config['logdir'])):
-            a = r.match(i)
-            if a:
-                producer = a.group(1)
-                producerFile = a.group()
-                o[producer] = self.__create_producer_fileinfo(producerFile)
-                
-        return o
+    def __create_producer_logger(self, producer, info):
+        self.log('Inside Server.__create_producer_logger, Producer: {0}, Info: {1}'.format(producer, info), level=logging.DEBUG)
+        logger = logging.getLogger(producer)
+        logger.setLevel(logging.DEBUG)
+        logger.propagate = False
     
-    def __create_producer_fileinfo(self, producerFile):
-        return {
-            'path': os.path.join(unicode(settings.config['logdir']), unicode(producerFile))
-        }
-    
-    def __init_producer(self, producer):
-        producerFile = '{0}.log'.format(producer)
-        self.__producerLogs[producer] = self.__create_producer_fileinfo(producerFile)
-        pprint.pprint(self.__producerLogs)
+        # We'll use a WatchedFileHandler and utilize some external application to rotate the logs periodically
+        logFilePath = os.path.join(settings.config['logdir'], '{0}.log'.format(producer))
+        handler = WatchedFileHandler(logFilePath)
+        handler.setLevel(info['logging.level'])
+        formatter = logging.Formatter(fmt='%(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(fmt='%(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
     
     def __write_to_log(self, message):
-        s = cStringIO.StringIO()
-        
-        def _write_string(output, message, name, appendChar='|'):
+        def _write_string(output, message, name):
             if name in message:
+                if output.getvalue() != '':
+                    # append a separator before the value we're adding
+                    output.write('|')
                 output.write(str(message[name]))
-                
-                if not appendChar is None:
-                    output.write(appendChar)
-        
-        _write_string(s, message, 'host')
-        _write_string(s, message, 'pid')
-        _write_string(s, message, 'level_name')
-        _write_string(s, message, 'level_num')
-        _write_string(s, message, 'message', None)
-        
-        s.write('\n')
-        
-        try:
-            filename = self.__producerLogs[message['producer']]['path']
-            with open(filename, 'a') as fp:
-                fp.write(s.getvalue())
-        finally:
-            s.close()
+                    
+        if message['producer'] in self.__producers:
+            s = cStringIO.StringIO()
+            [_write_string(s, message, i) for i in ['host', 'pid', 'level_name', 'level_num', 'message']]
+            try:
+                logger = logging.getLogger(message['producer'])
+                logger.log(level=message['level_num'], msg=s.getvalue())
+            finally:
+                s.close()
     
     def __handle_delivery(self, channel, method, header, body):
         self.log('Inside Server.__handle_delivery', level=logging.DEBUG)
         message = json.loads(body)
-        
-        messageLevel = int(message['level_num'])
-        
-        logger = logging.getLogger()
-        if messageLevel >= logger.level:
-        
-            producer = message['producer']
-            if not producer in self.__producerLogs:
-                self.__init_producer(producer)
-            
-            self.__write_to_log(message)
-        
-        else:
-            print('Message skipped')
+        self.__write_to_log(message)
             
         channel.basic_ack(delivery_tag=method.delivery_tag)

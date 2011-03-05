@@ -7,5 +7,13 @@ config = {
     'queue.retryTimeout': 10.0,
     'loopTimeout': 10.0,
     'logdir': '/var/log/kestava',
-    'logging.level': logging.INFO
+    'logging.level': logging.INFO,
+    'producer': 'log-server',
+    
+    # Configure client producers and their logging settings
+    'client-producers': {
+        'timeline-server': {
+            'logging.level': logging.INFO
+        }
+    }
 }
