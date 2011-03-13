@@ -128,7 +128,10 @@ class Server(object):
                     
         if message['producer'] in self.__producers:
             s = cStringIO.StringIO()
-            [_write_string(s, message, i) for i in ['host', 'pid', 'level_name', 'level_num', 'message']]
+            
+            for i in ['host', 'pid', 'level_name', 'level_num', 'message']:
+                _write_string(s, message, i)
+                
             try:
                 logger = logging.getLogger(message['producer'])
                 logger.log(level=message['level_num'], msg=s.getvalue())
